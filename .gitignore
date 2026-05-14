@@ -1,0 +1,47 @@
+# Gradle files
+.gradle/
+build/
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Local configuration file (SDK path, etc.)
+local.properties
+
+# Android generated files
+generated/
+bin/
+
+# Log files
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Android Studio - Captures and Profiler
+captures/
+*.hprof
+
+# Kotlin
+.kotlin/
+
+# Secrets & Environment
+.env*
+!*.example
+
+# Build outputs (AARs, JARs)
+*.aar
+*.jar
+!stardust-sdk/libs/*.jar # Keep libs if explicitly added there
+
+# Test reports
+TEST-*.xml
+build/reports/
+
+# Cursor Agent artifacts
+.artifacts/

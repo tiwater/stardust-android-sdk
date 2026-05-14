@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Stardust Sample</string>
+    <string name="settings">设置</string>
+    <string name="reconnect">重连</string>
+    <string name="transcript">转写</string>
+    <string name="save">保存</string>
+    <string name="permission_denied">需要麦克风权限才能对话</string>
+    <string name="open_app_settings">打开设置</string>
+    <string name="snackbar_error">错误</string>
+
+    <string name="status_ready"></string>
+    <string name="status_connecting">连接中…</string>
+    <string name="status_idle">已连接，请说话</string>
+    <string name="status_listening">正在聆听…</string>
+    <string name="status_thinking">思考中…</string>
+    <string name="status_speaking">正在播放…</string>
+    <string name="status_error">出错了，点击重试</string>
+
+    <string name="not_activated">未激活</string>
+    <string name="config_instruction">请在设置中配置连接与 Session（Agent ID 或复杂配置）</string>
+    <string name="config_center">配置中心</string>
+    <string name="config_subtitle">配置连接与安全凭据</string>
+    <string name="agent_label">AGENT 标识</string>
+    <string name="server_url_label">服务器链接</string>
+    <string name="terminal_secret_label">终端密钥</string>
+    <string name="group_id_label">Group ID</string>
+    <string name="robot_id_label">Robot ID</string>
+    <string name="security_tip_title">安全提示</string>
+    <string name="security_tip_content">您的凭据仅本地加密存储在应用中，不会上传。</string>
+    <string name="save_changes">保存更改</string>
+
+    <string name="agent_id_placeholder">输入 Agent 唯一标识</string>
+    <string name="server_url_placeholder">wss://api.example.com</string>
+    <string name="terminal_secret_placeholder">••••••••••••••••</string>
+    <string name="error_agent_id_empty">Agent ID 不能为空</string>
+    <string name="agent_id_top_bar_format">Agent ID: %1$s</string>
+    <string name="error_invalid_url">Server URL 需以 ws:// 或 wss:// 开头</string>
+    <string name="error_missing_credentials">请填写终端密钥，或同时填写 Group ID 与 Robot ID</string>
+
+    <string name="ptt_mode_checkbox">按住说话</string>
+    <string name="ptt_button_idle">按住说话</string>
+    <string name="ptt_button_pressed">请说话…</string>
+    <string name="ptt_toast_too_short">录音时间太短</string>
+    <string name="ptt_checkbox_desc">切换按住说话模式</string>
+    <string name="ptt_button_desc">按住说话，松开发送</string>
+
+    <string name="vision_mode_checkbox">启用视觉</string>
+    <string name="vision_fps_label">帧率</string>
+    <string name="vision_fps_chip">%d FPS</string>
+    <string name="vision_waiting">等待视觉结果…</string>
+    <string name="vision_streaming">视觉流传输中，%d FPS</string>
+    <string name="vision_stopped">视觉已停止</string>
+    <string name="vision_no_camera">没有可用摄像头，视觉已禁用</string>
+    <string name="vision_switch_camera">切换前后摄像头</string>
+    <string name="vision_switch_camera_unavailable">仅单摄像头，无法切换</string>
+    <string name="camera_permission_denied">视觉模式需要相机权限</string>
+    <string name="vision_checkbox_desc">切换视觉模式（摄像头）</string>
+    <string name="vision_face_line">人脸：%1$d 个（最高置信度 %2$d%%）</string>
+    <string name="vision_face_line_no_conf">人脸：%1$d 个</string>
+    <string name="vision_object_line">物体：%1$s（%2$d%%）</string>
+    <string name="vision_hand_line">手势：%1$s（%2$d%%）</string>
+    <string name="vision_image_label_line">标签：%1$s</string>
+    <string name="vision_image_desc_line">描述：%1$s</string>
+
+    <string name="session_config_mode">Session 配置模式</string>
+    <string name="session_mode_agent_id">Agent ID</string>
+    <string name="session_mode_advanced">复杂配置</string>
+    <string name="advanced_session_config">复杂配置</string>
+    <string name="edit_advanced_config">编辑复杂配置</string>
+    <string name="advanced_config_summary">当前复杂配置摘要</string>
+    <string name="advanced_summary_model">模型：%1$s/%2$s</string>
+    <string name="advanced_summary_voice">发音人：%1$s</string>
+    <string name="advanced_summary_hearing">听觉：input_audio_format=pcm16</string>
+    <string name="model_config">模型配置</string>
+    <string name="model_provider">模型提供商</string>
+    <string name="model_name">模型名称</string>
+    <string name="model_modalities">交互模式</string>
+    <string name="system_instructions">系统提示词</string>
+    <string name="system_instructions_hint">支持变量：{{tiwater.datetime.cn}}、{{terminal.name}} 等</string>
+    <string name="system_instructions_required">系统提示词不能为空</string>
+    <string name="temperature">Temperature</string>
+    <string name="top_p">Top P</string>
+    <string name="top_k">Top K</string>
+    <string name="max_tokens">最大输出 Tokens</string>
+    <string name="history_length">历史轮数</string>
+    <string name="speech_config">发音人配置</string>
+    <string name="voice_id">发音人</string>
+    <string name="custom_voice_id">自定义发音人</string>
+    <string name="custom_voice_id_hint">直接输入 Voice ID</string>
+    <string name="output_audio_format">输出音频格式</string>
+    <string name="emotion">情绪</string>
+    <string name="emotion_hint">部分音色不支持指定情绪，服务端可能回退默认情绪</string>
+    <string name="speed_ratio">语速</string>
+    <string name="pitch_ratio">音高</string>
+    <string name="volume_ratio">音量</string>
+    <string name="hearing_config">听觉配置</string>
+    <string name="input_audio_format">输入音频格式</string>
+    <string name="hearing_provider">语音识别供应商</string>
+    <string name="prefix_padding_ms">语音前置缓冲（毫秒）</string>
+    <string name="silence_duration_ms">静音时长（毫秒）</string>
+    <string name="sensitivity">灵敏度</string>
+    <string name="restore_recommended_defaults">恢复推荐默认值</string>
+    <string name="restore_defaults_confirm">确认将所有复杂配置恢复为推荐默认值？</string>
+    <string name="cancel">取消</string>
+    <string name="confirm">确认</string>
+    <string name="retry">重试</string>
+    <string name="select_voice">选择发音人</string>
+    <string name="search_voice">按名称搜索</string>
+    <string name="language_filter">语言</string>
+    <string name="gender_filter">性别</string>
+    <string name="provider_filter">提供商</string>
+    <string name="tags_filter">标签</string>
+    <string name="all_option">全部</string>
+    <string name="load_more">加载更多</string>
+    <string name="no_speakers_found">未找到匹配发音人</string>
+    <string name="use_custom_voice_id">使用自定义 ID</string>
+    <string name="filter_optional_hint">选填</string>
+    <string name="tags_hint">逗号分隔，如 role_play,anime</string>
+    <string name="group_id_placeholder">调试用 Group ID</string>
+    <string name="robot_id_placeholder">调试用 Robot ID</string>
+    <string name="auto_play_audio">自动播放语音</string>
+
+    <!-- Settings section titles -->
+    <string name="section_connection">连接设置</string>
+    <string name="section_auth">身份认证</string>
+    <string name="section_behavior">行为设置</string>
+
+    <!-- Conversation Info -->
+    <string name="conversation_info">对话信息</string>
+    <string name="conv_info_empty">暂无对话记录。开始对话后将在此展示信息。</string>
+    <string name="conv_info_total">共 %d 条记录</string>
+    <string name="conv_info_user_voice">用户语音</string>
+    <string name="conv_info_user_text">用户文本</string>
+    <string name="conv_info_assistant_voice">助手语音</string>
+    <string name="conv_info_function_call">Function 调用</string>
+    <string name="conv_info_user_voice_short">用户</string>
+    <string name="conv_info_user_text_short">文本</string>
+    <string name="conv_info_assistant_short">助手</string>
+    <string name="conv_info_function_short">Function</string>
+    <string name="conv_info_transcribing">转写中…</string>
+    <string name="conv_info_generating">生成中…</string>
+    <string name="conv_info_expand">展开</string>
+    <string name="conv_info_collapse">收起</string>
+    <string name="conv_info_audio_segments">%d 个音频片段</string>
+    <string name="conv_info_filter_all">全部</string>
+    <string name="conv_info_filter_user">用户</string>
+    <string name="conv_info_filter_assistant">助手</string>
+    <string name="conv_info_filter_function">Function</string>
+    <string name="conv_info_max_reached">仅显示最近 %d 条记录</string>
+    <string name="conv_info_filter_empty">该分类暂无记录</string>
+    <string name="conv_info_play_audio">播放语音</string>
+    <string name="conv_info_stop_audio">停止播放</string>
+</resources>
