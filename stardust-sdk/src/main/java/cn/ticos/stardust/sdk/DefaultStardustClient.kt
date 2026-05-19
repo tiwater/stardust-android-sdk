@@ -41,6 +41,8 @@ class DefaultStardustClient(
     private val logger = StardustLogger(config.logLevel)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val wsSendQueue = Channel<String>(Channel.UNLIMITED)
+    /** Preserves WebSocket receive order (critical for audio delta before audio.done). */
+    private val wsReceiveQueue = Channel<String>(Channel.UNLIMITED)
     private val isClosed = AtomicBoolean(false)
 
     private val _state = MutableStateFlow(StardustState.Idle)
@@ -126,6 +128,11 @@ class DefaultStardustClient(
                     diagnostics.onEventSent()
                     logger.d("send=${logger.redactJson(payload)}")
                 }
+            }
+        }
+        scope.launch {
+            for (text in wsReceiveQueue) {
+                dispatchRealtimeMessage(text)
             }
         }
     }
@@ -220,6 +227,7 @@ class DefaultStardustClient(
         realtimeWs?.close(1000, "client close")
         realtimeWs = null
         wsSendQueue.close()
+        wsReceiveQueue.close()
         scope.coroutineContext.cancel()
         _state.value = StardustState.Closed
         diagnostics.updateRealtimeConnected(false)
@@ -238,25 +246,7 @@ class DefaultStardustClient(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                scope.launch {
-                    diagnostics.onEventReceived()
-                    logger.d("recv=${logger.redactJson(text)}")
-                    try {
-                        val event = EventParser.parse(text)
-                        _events.emit(event)
-                        onEvent(event)
-                    } catch (t: Throwable) {
-                        emitError(
-                            StardustSdkError(
-                                code = StardustErrorCode.JSON_PARSE_FAILED,
-                                message = "Failed to parse event",
-                                cause = t,
-                                rawEvent = text,
-                                recoverable = true,
-                            ),
-                        )
-                    }
-                }
+                wsReceiveQueue.trySend(text)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -306,6 +296,26 @@ class DefaultStardustClient(
         }
     }
 
+    private suspend fun dispatchRealtimeMessage(text: String) {
+        diagnostics.onEventReceived()
+        logger.d("recv=${logger.redactJson(text)}")
+        try {
+            val event = EventParser.parse(text)
+            _events.emit(event)
+            onEvent(event)
+        } catch (t: Throwable) {
+            emitError(
+                StardustSdkError(
+                    code = StardustErrorCode.JSON_PARSE_FAILED,
+                    message = "Failed to parse event",
+                    cause = t,
+                    rawEvent = text,
+                    recoverable = true,
+                ),
+            )
+        }
+    }
+
     private suspend fun onEvent(event: StardustEvent) {
         when (event) {
             is StardustEvent.SessionCreated -> _state.value = StardustState.SessionCreated
@@ -316,6 +326,7 @@ class DefaultStardustClient(
 
             is StardustEvent.ResponseCreated -> {
                 suppressAudioDelta = false
+                internalAudio.onResponseCreated()
             }
 
             is StardustEvent.ResponseAudioDone -> {

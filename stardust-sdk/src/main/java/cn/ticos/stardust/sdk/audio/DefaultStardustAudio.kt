@@ -34,6 +34,11 @@ import kotlinx.serialization.json.put
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
+private sealed interface PlaybackIngress {
+    data class Pcm(val bytes: ByteArray) : PlaybackIngress
+    data object SegmentEnd : PlaybackIngress
+}
+
 internal class DefaultStardustAudio(
     private val scope: CoroutineScope,
     private val sendJson: suspend (String) -> Unit,
@@ -72,13 +77,36 @@ internal class DefaultStardustAudio(
     /** Chunks received from [playbackQueue] but not yet fully consumed (written or dropped). */
     private val pendingPlaybackChunks = AtomicInteger(0)
 
+    private val pcmCoalescer = PcmPlaybackCoalescer()
+
+    /** Serializes delta append + coalesce so WebSocket message order is preserved. */
+    private val playbackIngress = Channel<PlaybackIngress>(capacity = Channel.UNLIMITED)
+
     private val playbackQueue = Channel<ByteArray>(capacity = Channel.UNLIMITED)
+    private var playbackIngressJob: Job? = null
     private var playbackJob: Job? = null
     private var audioTrack: AudioTrack? = null
     private var recorder: AudioRecord? = null
     private var captureJob: Job? = null
 
     init {
+        playbackIngressJob = scope.launch(Dispatchers.IO) {
+            for (item in playbackIngress) {
+                when (item) {
+                    is PlaybackIngress.Pcm -> {
+                        if (item.bytes.isEmpty()) continue
+                        assistantPlayoutStreamOpen.set(true)
+                        pcmCoalescer.append(item.bytes)
+                        flushCoalescedToPlaybackQueue(force = false)
+                    }
+                    PlaybackIngress.SegmentEnd -> {
+                        flushCoalescedToPlaybackQueue(force = true)
+                        assistantPlayoutStreamOpen.set(false)
+                        applyPlaybackSignals()
+                    }
+                }
+            }
+        }
         playbackJob = scope.launch(Dispatchers.IO) {
             for (chunk in playbackQueue) {
                 if (!playbackEnabled.get()) {
@@ -91,7 +119,7 @@ internal class DefaultStardustAudio(
                     if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
                         track.play()
                     }
-                    track.write(chunk, 0, chunk.size)
+                    writePcmToTrack(track, chunk)
                 } catch (t: Throwable) {
                     _playbackState.value = PlaybackAudioState.Failed
                     emitError(
@@ -207,6 +235,10 @@ internal class DefaultStardustAudio(
 
     override suspend fun stopPlayback(clearQueue: Boolean) {
         assistantPlayoutStreamOpen.set(false)
+        pcmCoalescer.clear()
+        while (playbackIngress.tryReceive().isSuccess) {
+            // drain pending deltas not yet coalesced
+        }
         audioTrack?.runCatching {
             pause()
             flush()
@@ -229,18 +261,34 @@ internal class DefaultStardustAudio(
     }
 
     override fun onServerResponseAudioDone() {
-        assistantPlayoutStreamOpen.set(false)
-        applyPlaybackSignals()
+        signalSegmentPlaybackEnd()
     }
 
     override fun onServerResponseDone() {
-        assistantPlayoutStreamOpen.set(false)
-        applyPlaybackSignals()
+        signalSegmentPlaybackEnd()
     }
+
+    fun onResponseCreated() = Unit
 
     suspend fun enqueueDeltaPcm(pcm16: ByteArray?) {
         if (pcm16 == null || pcm16.isEmpty()) return
-        assistantPlayoutStreamOpen.set(true)
+        playbackIngress.send(PlaybackIngress.Pcm(pcm16))
+    }
+
+    private fun signalSegmentPlaybackEnd() {
+        playbackIngress.trySend(PlaybackIngress.SegmentEnd)
+    }
+
+    private suspend fun flushCoalescedToPlaybackQueue(force: Boolean) {
+        var currentForce = force
+        while (true) {
+            val chunk = pcmCoalescer.drainIfReady(force = currentForce) ?: break
+            enqueuePlaybackChunk(chunk)
+            currentForce = false
+        }
+    }
+
+    private suspend fun enqueuePlaybackChunk(pcm16: ByteArray) {
         pendingPlaybackChunks.incrementAndGet()
         playbackQueue.send(pcm16)
         applyPlaybackSignals()
@@ -249,10 +297,22 @@ internal class DefaultStardustAudio(
     suspend fun release() {
         stopCapture(commit = false)
         stopPlayback(clearQueue = true)
+        pcmCoalescer.clear()
+        playbackIngress.close()
+        playbackIngressJob?.cancel()
         playbackJob?.cancel()
         playbackQueue.close()
         audioTrack?.release()
         audioTrack = null
+    }
+
+    private fun writePcmToTrack(track: AudioTrack, pcm: ByteArray) {
+        var offset = 0
+        while (offset < pcm.size) {
+            val written = track.write(pcm, offset, pcm.size - offset)
+            if (written <= 0) break
+            offset += written
+        }
     }
 
     private fun applyPlaybackSignals() {
@@ -276,6 +336,7 @@ internal class DefaultStardustAudio(
         )
         val sessionId = recorder?.audioSessionId?.takeIf { it > 0 }
             ?: AudioManager.AUDIO_SESSION_ID_GENERATE
+        val streamBufSize = (minBuffer * 8).coerceAtLeast(minBuffer)
         val track = AudioTrack(
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
@@ -286,7 +347,7 @@ internal class DefaultStardustAudio(
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                 .build(),
-            minBuffer * 2,
+            streamBufSize,
             AudioTrack.MODE_STREAM,
             sessionId,
         )
