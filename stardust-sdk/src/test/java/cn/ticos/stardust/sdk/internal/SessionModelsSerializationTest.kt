@@ -3,6 +3,7 @@ package cn.ticos.stardust.sdk.internal
 import cn.ticos.stardust.sdk.model.HearingConfig
 import cn.ticos.stardust.sdk.model.SpeechConfig
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals

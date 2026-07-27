@@ -3,6 +3,7 @@ package cn.ticos.stardust.sdk
 import cn.ticos.stardust.sdk.audio.DefaultStardustAudio
 import cn.ticos.stardust.sdk.internal.EventParser
 import cn.ticos.stardust.sdk.internal.ProtocolEncoder
+import cn.ticos.stardust.sdk.internal.ResponseAudioGate
 import cn.ticos.stardust.sdk.internal.StardustJson
 import cn.ticos.stardust.sdk.internal.StardustLogger
 import cn.ticos.stardust.sdk.internal.buildConversationItemPayload
@@ -24,7 +25,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -33,6 +37,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.min
 
 class DefaultStardustClient(
@@ -43,6 +48,10 @@ class DefaultStardustClient(
     private val wsSendQueue = Channel<String>(Channel.UNLIMITED)
     /** Preserves WebSocket receive order (critical for audio delta before audio.done). */
     private val wsReceiveQueue = Channel<String>(Channel.UNLIMITED)
+    /** Keeps public event delivery ordered without letting a slow subscriber starve audio. */
+    private val publicEventQueue = Channel<StardustEvent>(Channel.UNLIMITED)
+    private val publicEventBacklog = AtomicInteger(0)
+    private val responseAudioGate = ResponseAudioGate()
     private val isClosed = AtomicBoolean(false)
 
     private val _state = MutableStateFlow(StardustState.Idle)
@@ -73,14 +82,6 @@ class DefaultStardustClient(
     private var connectDeferred: CompletableDeferred<Unit>? = null
     private var lastSessionConfig: SessionConfig? = null
     private var reconnecting = AtomicBoolean(false)
-
-    /**
-     * 调用 [cancelResponse] 后设为 true，抑制后续到达的 ResponseAudioDelta 被入队播放。
-     * 直到 ResponseAudioDone / ResponseDone 到达后重置，避免 PTT 打断时因网络延迟残留的
-     * 音频片段重新触发播放（即使服务端忽略了 response.cancel 也能保证本地静默）。
-     */
-    @Volatile
-    private var suppressAudioDelta = false
 
     private val internalAudio = DefaultStardustAudio(
         scope = scope,
@@ -133,6 +134,15 @@ class DefaultStardustClient(
         scope.launch {
             for (text in wsReceiveQueue) {
                 dispatchRealtimeMessage(text)
+            }
+        }
+        scope.launch {
+            for (event in publicEventQueue) {
+                try {
+                    _events.emit(event)
+                } finally {
+                    publicEventBacklog.decrementAndGet()
+                }
             }
         }
     }
@@ -205,10 +215,9 @@ class DefaultStardustClient(
 
     override suspend fun cancelResponse(userId: String) {
         ensureNotClosed()
-        // 先抑制后续 delta 入队，再清空本地队列，防止竞态条件导致残留音频继续播放。
-        // 服务端在 Client VAD 模式下可能忽略 response.cancel（参见 API 文档），此标志
-        // 保证即使服务端仍继续下发音频，客户端也不会播放。
-        suppressAudioDelta = true
+        // 先按 response/item 屏蔽迟到 delta，再清空本地队列，防止残留音频重新拉起播放。
+        responseAudioGate.suppressActive()
+        logger.i("Stopping assistant playback reason=response.cancel")
         internalAudio.stopPlayback(clearQueue = true)
         enqueueSend("""{"type":"response.cancel","user_id":"$userId"}""")
     }
@@ -228,6 +237,8 @@ class DefaultStardustClient(
         realtimeWs = null
         wsSendQueue.close()
         wsReceiveQueue.close()
+        publicEventQueue.close()
+        responseAudioGate.clear()
         scope.coroutineContext.cancel()
         _state.value = StardustState.Closed
         diagnostics.updateRealtimeConnected(false)
@@ -301,8 +312,13 @@ class DefaultStardustClient(
         logger.d("recv=${logger.redactJson(text)}")
         try {
             val event = EventParser.parse(text)
-            _events.emit(event)
+            // Internal realtime handling must never wait for public UI/business subscribers.
             onEvent(event)
+            val backlog = publicEventBacklog.incrementAndGet()
+            publicEventQueue.send(event)
+            if (backlog == 128 || (backlog > 128 && backlog % 128 == 0)) {
+                logger.w("Public event subscriber backlog=$backlog; realtime audio remains isolated")
+            }
         } catch (t: Throwable) {
             emitError(
                 StardustSdkError(
@@ -321,27 +337,38 @@ class DefaultStardustClient(
             is StardustEvent.SessionCreated -> _state.value = StardustState.SessionCreated
             is StardustEvent.SessionUpdated -> _state.value = StardustState.SessionUpdated
             is StardustEvent.InputAudioBufferSpeechStarted -> {
+                responseAudioGate.suppressActive()
+                logger.i("Stopping assistant playback reason=input_audio_buffer.speech_started")
                 internalAudio.stopPlayback(clearQueue = true)
             }
 
             is StardustEvent.ResponseCreated -> {
-                suppressAudioDelta = false
+                val (responseId, itemId) = responseAndItemIds(event.payload)
+                responseAudioGate.onResponseCreated(responseId, itemId)
                 internalAudio.onResponseCreated()
             }
 
             is StardustEvent.ResponseAudioDone -> {
-                suppressAudioDelta = false
-                audio.onServerResponseAudioDone()
+                val (responseId, itemId) = responseAndItemIds(event.payload)
+                if (!responseAudioGate.isSuppressed(responseId, itemId)) {
+                    audio.onServerResponseAudioDone()
+                }
             }
 
             is StardustEvent.ResponseDone -> {
-                suppressAudioDelta = false
-                audio.onServerResponseDone()
+                val (responseId, itemId) = responseAndItemIds(event.payload)
+                if (!responseAudioGate.isSuppressed(responseId, itemId)) {
+                    audio.onServerResponseDone()
+                }
+                responseAudioGate.onResponseFinished(responseId, itemId)
             }
 
             is StardustEvent.ResponseAudioDelta -> {
-                if (!suppressAudioDelta) {
+                val (responseId, itemId) = responseAndItemIds(event.payload)
+                if (responseAudioGate.acceptDelta(responseId, itemId)) {
                     internalAudio.enqueueDeltaPcm(event.decodedPcm16)
+                } else {
+                    logger.d("Dropped obsolete response.audio.delta responseId=$responseId itemId=$itemId")
                 }
             }
             is StardustEvent.Error -> emitError(
@@ -356,6 +383,22 @@ class DefaultStardustClient(
             else -> Unit
         }
     }
+
+    private fun responseAndItemIds(payload: JsonObject): Pair<String?, String?> {
+        val response = payload["response"] as? JsonObject
+        val responseId = payload.stringOrNull("response_id") ?: response?.stringOrNull("id")
+        val directItemId = payload.stringOrNull("item_id")
+        val firstOutput = (response?.get("output") as? JsonArray)?.firstOrNull()
+        val nestedItemId = when (firstOutput) {
+            is JsonPrimitive -> firstOutput.contentOrNull
+            is JsonObject -> firstOutput.stringOrNull("id")
+            else -> null
+        }
+        return responseId to (directItemId ?: nestedItemId)
+    }
+
+    private fun JsonObject.stringOrNull(key: String): String? =
+        (this[key] as? JsonPrimitive)?.contentOrNull
 
     private suspend fun handleReconnect(error: StardustSdkError) {
         emitError(error)
